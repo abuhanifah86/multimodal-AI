@@ -2,7 +2,8 @@
 
 This project is a powerful multimodal AI assistant that can understand both spoken language and images. It uses OpenAI's Whisper for speech-to-text, the LLaVA 7B model for vision-language tasks, and Google's Text-to-Speech (gTTS) for voice responses, all wrapped in an easy-to-use Gradio web interface.
 
- <!-- Placeholder: Replace with an actual screenshot of the Gradio app -->
+ <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/bcf7a133-0c7d-4b74-ae2b-f68df16866ac" />
+
 
 ## ✨ Features
 
