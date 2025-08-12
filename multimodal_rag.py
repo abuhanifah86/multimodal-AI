@@ -102,6 +102,7 @@ def img2txt(input_text, input_image_path, max_retries=3, retry_delay=2):
 
     payload = {**OLLAMA_CONFIG, "prompt": prompt_text, "images": [encoded_image]}
 
+    last_exception = None
     for attempt in range(max_retries):
         try:
             response = requests.post(OLLAMA_ENDPOINT, json=payload, timeout=30)
@@ -109,45 +110,38 @@ def img2txt(input_text, input_image_path, max_retries=3, retry_delay=2):
             reply = response.json().get("response", "No response from model.")
             return reply.strip()
         except requests.exceptions.RequestException as e:
+            last_exception = e
             writehistory(f"Ollama request failed (attempt {attempt+1}): {e}")
             time.sleep(retry_delay)
 
-    return "Error: Ollama request repeatedly failed. Check server status."
+    return f"Error: Ollama request repeatedly failed. Check server status. Last error: {last_exception}"
 
 # ==============================
 # WHISPER TRANSCRIPTION (LONG AUDIO CHUNKING)
 # ==============================
-def transcribe(audio_path, chunk_duration_sec=30):
+def transcribe(audio_path):
     """
-    Transcribe audio in chunks to handle long inputs (>30s).
+    Transcribe audio using Whisper's built-in functionality.
+    This handles long audio automatically.
     Returns (full_transcript, detected_language_code).
     """
-    import math
     if not audio_path or not os.path.exists(audio_path):
+        writehistory("[WARN] Transcription skipped: Audio path is invalid.")
         return ("", "en")
 
-    audio = whisper.load_audio(audio_path)
-    sample_rate = whisper.audio.SAMPLE_RATE
-    total_frames = audio.shape[0]
-    chunk_size = chunk_duration_sec * sample_rate
-    num_chunks = math.ceil(total_frames / chunk_size)
-
-    transcript = []
-    lang_probs = {}
-
-    for i in range(num_chunks):
-        start = i * chunk_size
-        end = min((i+1) * chunk_size, total_frames)
-        chunk_audio = whisper.pad_or_trim(audio[start:end])
-        mel = whisper.log_mel_spectrogram(chunk_audio).to(model.device)
-        if i == 0:  # detect language only once
-            _, lang_probs = model.detect_language(mel)
-        options = whisper.DecodingOptions()
-        result = whisper.decode(model, mel, options)
-        transcript.append(result.text.strip())
-
-    detected_lang = max(lang_probs, key=lang_probs.get) if lang_probs else "en"
-    return " ".join(transcript), detected_lang
+    try:
+        # The transcribe method handles chunking and language detection automatically.
+        # fp16=False can improve stability on some systems if you encounter CUDA errors here.
+        result = model.transcribe(audio_path, fp16=torch.cuda.is_available())
+        
+        full_transcript = result.get("text", "").strip()
+        detected_lang = result.get("language", "en")
+        
+        writehistory(f"Transcription successful. Language: {detected_lang}.")
+        return full_transcript, detected_lang
+    except Exception as e:
+        writehistory(f"[ERROR] Whisper transcription failed: {e}")
+        return (f"Error during transcription: {e}", "en")
 
 # ==============================
 # TEXT TO SPEECH (AUTO LANGUAGE)
@@ -169,7 +163,7 @@ def text_to_speech(text, file_path, lang="en"):
 # ==============================
 def process_inputs(audio_path, image_path):
     """Main processing pipeline for Gradio interface."""
-    speech_to_text_output, detected_lang = transcribe(audio_path)
+    speech_to_text_output, detected_lang = transcribe(audio_path) # Updated call
 
     if image_path:
         llava_output = img2txt(speech_to_text_output, image_path)
@@ -213,4 +207,4 @@ iface = gr.Interface(
 )
 
 if __name__ == "__main__":
-    iface.launch(debug=True)
+    iface.launch(debug=True, server_name="0.0.0.0")
